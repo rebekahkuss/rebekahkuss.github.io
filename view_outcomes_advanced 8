@@ -1,0 +1,331 @@
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from matplotlib.widgets import Button, TextBox
+import itertools
+import numpy as np
+
+def view_outcomes_advanced():
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(12, 8))
+    fig.canvas.manager.set_window_title("View Outcomes Advanced")
+
+    ax.set_xlim(0, 12)
+    ax.set_ylim(0, 8)
+    ax.axis("off")
+
+    # --- Drag area ---
+    drag_box = Rectangle((0, .9), 12, 6, edgecolor='gray', facecolor='whitesmoke', lw=2)
+    ax.add_patch(drag_box)
+
+    # --- State ---
+    text_handles, annotations, selected = [], [], []
+    annotation_mode = False
+    counter_mode = False
+    drag_mode = False
+    dragging = False
+    selecting_box = False
+    current_rect = None
+    last_mouse = None
+    drag_target = None
+
+    plt.subplots_adjust(left=0.1, right=0.95, bottom=0.28)
+
+    # --- Text boxes ---
+    axbox = plt.axes([0.20, 0.22, 0.35, 0.05])
+    text_box = TextBox(axbox, "Items:", initial="A, B, C")
+
+    ax_n = plt.axes([0.57, 0.22, 0.08, 0.05])
+    text_n = TextBox(ax_n, "n:", initial="")
+
+    ax_r = plt.axes([0.67, 0.22, 0.08, 0.05])
+    text_r = TextBox(ax_r, "r:", initial="")
+
+    # --- Buttons ---
+    ax_show = plt.axes([0.77, 0.22, 0.20, 0.05])
+    btn_show = Button(ax_show, "Show Items")
+
+    ax_perm_no = plt.axes([0.05, 0.16, 0.18, 0.05])
+    btn_perm_no = Button(ax_perm_no, "Permutations (no rep)")
+
+    ax_perm_yes = plt.axes([0.25, 0.16, 0.18, 0.05])
+    btn_perm_yes = Button(ax_perm_yes, "Permutations (with rep)")
+
+    ax_comb_no = plt.axes([0.45, 0.16, 0.18, 0.05])
+    btn_comb_no = Button(ax_comb_no, "Combinations (no rep)")
+
+    ax_comb_yes = plt.axes([0.65, 0.16, 0.18, 0.05])
+    btn_comb_yes = Button(ax_comb_yes, "Combinations (with rep)")
+
+    ax_drag = plt.axes([0.05, 0.10, 0.12, 0.05])
+    btn_drag = Button(ax_drag, "Drag (off)")
+
+    ax_counter = plt.axes([0.20, 0.10, 0.12, 0.05])
+    btn_counter = Button(ax_counter, "Counter (off)")
+
+    ax_annotate = plt.axes([0.35, 0.10, 0.12, 0.05])
+    btn_annotate = Button(ax_annotate, "Annotate (off)")
+
+    ax_delete = plt.axes([0.50, 0.10, 0.15, 0.05])
+    btn_delete = Button(ax_delete, "Delete Last Box")
+
+    ax_clear = plt.axes([0.70, 0.10, 0.15, 0.05])
+    btn_clear = Button(ax_clear, "Clear All")
+
+    count_display = ax.text(6, 7.8, "Count: 0", fontsize=12, ha='center', va='top', color='blue')
+
+    # --- Helpers ---
+    def parse_input(text):
+        return [s.strip() for s in text.replace(",", " ").split() if s.strip()]
+
+    def get_n_r(default_n):
+        try:
+            n = int(text_n.text) if text_n.text.strip() else default_n
+        except ValueError:
+            n = default_n
+        try:
+            r = int(text_r.text) if text_r.text.strip() else n
+        except ValueError:
+            r = n
+        return max(1, n), max(1, r)
+
+    def clear_items():
+        nonlocal text_handles, annotations, selected
+        for t in text_handles:
+            t.remove()
+        for a in annotations:
+            a.remove()
+        text_handles.clear()
+        annotations.clear()
+        selected.clear()
+        update_count_display()
+        fig.canvas.draw_idle()
+
+    def show_items(event=None, strings=None):
+        clear_items()
+        if strings is None:
+            strings = parse_input(text_box.text)
+        if not strings:
+            return
+
+        num_items = len(strings)
+        num_cols = int(np.ceil(np.sqrt(num_items)))
+        x_spacing = max(0.8, 10 / num_cols)
+        y_spacing = 0.6
+        font_size = 12
+
+        for i, s in enumerate(strings):
+            row = i // num_cols
+            col = i % num_cols
+            x, y = 1 + col * x_spacing, 2 + row * y_spacing
+            t = ax.text(x, y, s, ha='center', va='center', fontsize=font_size,
+                        bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='black'))
+            text_handles.append(t)
+        fig.canvas.draw_idle()
+
+    def update_count_display():
+        count_display.set_text(f"Count: {len(selected)}")
+        fig.canvas.draw_idle()
+
+    def update_button_colors():
+        btn_annotate.ax.set_facecolor("lightblue" if annotation_mode else "lightgray")
+        btn_counter.ax.set_facecolor("lightblue" if counter_mode else "lightgray")
+        btn_drag.ax.set_facecolor("lightblue" if drag_mode else "lightgray")
+        fig.canvas.draw_idle()
+
+    # --- Combinatorics ---
+    def generate_permutations_no_rep(event=None):
+        items = parse_input(text_box.text)
+        n, r = get_n_r(len(items))
+        if r > n:
+            show_items(strings=["r cannot exceed n"])
+            return
+        perms = list(itertools.permutations(items[:n], r))
+        show_items(strings=[", ".join(p) for p in perms])
+
+    def generate_permutations_with_rep(event=None):
+        items = parse_input(text_box.text)
+        n, r = get_n_r(len(items))
+        perms = list(itertools.product(items[:n], repeat=r))
+        show_items(strings=[", ".join(p) for p in perms])
+
+    def generate_combinations_no_rep(event=None):
+        items = parse_input(text_box.text)
+        n, r = get_n_r(len(items))
+        if r > n:
+            show_items(strings=["r cannot exceed n"])
+            return
+        combos = list(itertools.combinations(items[:n], r))
+        show_items(strings=[", ".join(c) for c in combos])
+
+    def generate_combinations_with_rep(event=None):
+        items = parse_input(text_box.text)
+        n, r = get_n_r(len(items))
+        combos = list(itertools.combinations_with_replacement(items[:n], r))
+        show_items(strings=[", ".join(c) for c in combos])
+
+    # --- Toggles ---
+    def set_modes(annotation=False, counter=False, drag=False):
+        nonlocal annotation_mode, counter_mode, drag_mode, current_rect, selecting_box
+        annotation_mode, counter_mode, drag_mode = annotation, counter, drag
+
+        if current_rect is not None:
+            try: current_rect.remove()
+            except Exception: pass
+            current_rect = None
+            selecting_box = False
+
+        btn_annotate.label.set_text(f"Annotate ({'on' if annotation_mode else 'off'})")
+        btn_counter.label.set_text(f"Counter ({'on' if counter_mode else 'off'})")
+        btn_drag.label.set_text(f"Drag ({'on' if drag_mode else 'off'})")
+        update_button_colors()
+
+    def toggle_annotation(event=None):
+        set_modes(annotation=not annotation_mode)
+
+    def toggle_counter(event=None):
+        set_modes(counter=not counter_mode)
+
+    def toggle_drag(event=None):
+        set_modes(drag=not drag_mode)
+
+    def delete_last_annotation(event=None):
+        nonlocal annotations
+        if annotations:
+            ann = annotations.pop()
+            try: ann.remove()
+            except Exception: pass
+            fig.canvas.draw_idle()
+
+    # --- Mouse events ---
+    def on_press(event):
+        nonlocal dragging, selecting_box, current_rect, last_mouse, drag_target
+        if event.inaxes != ax or event.xdata is None or event.ydata is None:
+            return
+        last_mouse = (event.xdata, event.ydata)
+        drag_target = None
+
+        if annotation_mode:
+            current_rect = Rectangle((event.xdata, event.ydata), 0, 0,
+                                     linewidth=2, edgecolor='blue', facecolor='none')
+            ax.add_patch(current_rect)
+            annotations.append(current_rect)
+            return
+
+        if counter_mode:
+            selecting_box = True
+            current_rect = Rectangle((event.xdata, event.ydata), 0, 0,
+                                     linewidth=2, edgecolor='green', facecolor='lightgreen', alpha=0.3)
+            ax.add_patch(current_rect)
+            return
+
+        renderer = fig.canvas.get_renderer()
+        clicked_text = None
+        for t in text_handles:
+            if t.get_window_extent(renderer=renderer).contains(event.x, event.y):
+                clicked_text = t
+                break
+
+        if drag_mode:
+            # In drag mode, don’t unselect others — just drag what’s clicked
+            if clicked_text:
+                if clicked_text not in selected:
+                    # select this one if not already selected
+                    selected.clear()
+                    selected.append(clicked_text)
+                drag_target = clicked_text
+                dragging = True
+        else:
+            # Normal selection mode: toggle selection
+            if clicked_text:
+                if clicked_text in selected:
+                    selected.remove(clicked_text)
+                else:
+                    selected.append(clicked_text)
+
+        update_highlight()
+        update_count_display()
+
+    def on_motion(event):
+        nonlocal last_mouse
+        if event.inaxes != ax or event.xdata is None or event.ydata is None:
+            return
+
+        if annotation_mode and current_rect is not None:
+            x0, y0 = current_rect.get_xy()
+            current_rect.set_width(event.xdata - x0)
+            current_rect.set_height(event.ydata - y0)
+            fig.canvas.draw_idle()
+            return
+
+        if counter_mode and selecting_box and current_rect is not None:
+            x0, y0 = current_rect.get_xy()
+            current_rect.set_width(event.xdata - x0)
+            current_rect.set_height(event.ydata - y0)
+            fig.canvas.draw_idle()
+            return
+
+        if drag_mode and dragging and selected and last_mouse:
+            dx, dy = event.xdata - last_mouse[0], event.ydata - last_mouse[1]
+            for t in selected:
+                x, y = t.get_position()
+                t.set_position((np.clip(x + dx, 1, 11), np.clip(y + dy, 1, 7)))
+            last_mouse = (event.xdata, event.ydata)
+            fig.canvas.draw_idle()
+
+    def on_release(event):
+        nonlocal selecting_box, dragging, current_rect
+        dragging = False
+
+        if annotation_mode and current_rect is not None:
+            w, h = current_rect.get_width(), current_rect.get_height()
+            if abs(w) < 0.05 and abs(h) < 0.05:
+                try: current_rect.remove()
+                except Exception: pass
+                if annotations and annotations[-1] is current_rect:
+                    annotations.pop()
+            current_rect = None
+            fig.canvas.draw_idle()
+            return
+
+        if counter_mode and current_rect is not None:
+            x0, y0 = current_rect.get_xy()
+            x1, y1 = x0 + current_rect.get_width(), y0 + current_rect.get_height()
+            xmin, xmax = sorted([x0, x1])
+            ymin, ymax = sorted([y0, y1])
+            selected.clear()
+            for t in text_handles:
+                x, y = t.get_position()
+                if xmin <= x <= xmax and ymin <= y <= ymax:
+                    selected.append(t)
+            try: current_rect.remove()
+            except Exception: pass
+            current_rect = None
+            selecting_box = False
+            update_highlight()
+            update_count_display()
+
+    def update_highlight():
+        for t in text_handles:
+            t.set_bbox(dict(boxstyle='round,pad=0.3',
+                            fc='yellow' if t in selected else 'white',
+                            ec='black'))
+        fig.canvas.draw_idle()
+
+    # --- Bindings ---
+    btn_show.on_clicked(show_items)
+    btn_perm_no.on_clicked(generate_permutations_no_rep)
+    btn_perm_yes.on_clicked(generate_permutations_with_rep)
+    btn_comb_no.on_clicked(generate_combinations_no_rep)
+    btn_comb_yes.on_clicked(generate_combinations_with_rep)
+    btn_annotate.on_clicked(toggle_annotation)
+    btn_counter.on_clicked(toggle_counter)
+    btn_drag.on_clicked(toggle_drag)
+    btn_delete.on_clicked(delete_last_annotation)
+    btn_clear.on_clicked(lambda e: clear_items())
+
+    fig.canvas.mpl_connect('button_press_event', on_press)
+    fig.canvas.mpl_connect('motion_notify_event', on_motion)
+    fig.canvas.mpl_connect('button_release_event', on_release)
+
+    update_button_colors()
+    plt.show(block=True)
